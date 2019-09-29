@@ -2,13 +2,13 @@ package bench
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strings"
 	. "testing"
 	"time"
 
-	errors "golang.org/x/xerrors"
-
+	"github.com/alicebob/miniredis"
 	goredis "github.com/go-redis/redis"
 	redigo "github.com/gomodule/redigo/redis"
 	redispipe "github.com/joomcode/redispipe/redis"
@@ -16,8 +16,19 @@ import (
 	"github.com/mediocregopher/radix/v3"
 )
 
+var mr *miniredis.Miniredis
+var addr string
+
+func init() {
+	mr, err := miniredis.Run()
+	if err != nil {
+		panic(err)
+	}
+	addr = mr.Addr()
+}
+
 func newRedigo() redigo.Conn {
-	c, err := redigo.Dial("tcp", "127.0.0.1:6379")
+	c, err := redigo.Dial("tcp", addr)
 	if err != nil {
 		panic(err)
 	}
@@ -25,7 +36,7 @@ func newRedigo() redigo.Conn {
 }
 
 func newRedisPipe(writePause time.Duration) redispipe.Sync {
-	pipe, err := redispipeconn.Connect(context.Background(), "127.0.0.1:6379", redispipeconn.Opts{
+	pipe, err := redispipeconn.Connect(context.Background(), addr, redispipeconn.Opts{
 		Logger:     redispipeconn.NoopLogger{},
 		WritePause: writePause,
 	})
@@ -37,7 +48,7 @@ func newRedisPipe(writePause time.Duration) redispipe.Sync {
 
 func newGoredis(poolSize int) *goredis.Client {
 	c := goredis.NewClient(&goredis.Options{
-		Addr:         "127.0.0.1:6379",
+		Addr:         addr,
 		PoolSize:     poolSize,
 		MinIdleConns: poolSize,
 	})
@@ -68,7 +79,7 @@ func radixGetSet(client radix.Client, key, val string) error {
 
 func BenchmarkSerialGetSet(b *B) {
 	b.Run("radix", func(b *B) {
-		rad, err := radix.Dial("tcp", "127.0.0.1:6379")
+		rad, err := radix.Dial("tcp", addr)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -143,7 +154,7 @@ func BenchmarkSerialGetSetLargeArgs(b *B) {
 	val := strings.Repeat("bar", 4096)
 
 	b.Run("radix", func(b *B) {
-		rad, err := radix.Dial("tcp", "127.0.0.1:6379")
+		rad, err := radix.Dial("tcp", addr)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -241,7 +252,7 @@ func BenchmarkParallelGetSet(b *B) {
 	b.Run("radix", func(b *B) {
 		mkRadixBench := func(opts ...radix.PoolOpt) func(b *B) {
 			return func(b *B) {
-				pool, err := radix.NewPool("tcp", "127.0.0.1:6379", poolSize, opts...)
+				pool, err := radix.NewPool("tcp", addr, poolSize, opts...)
 				if err != nil {
 					b.Fatal(err)
 				}
